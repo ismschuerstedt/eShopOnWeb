@@ -1,0 +1,56 @@
+name: eshoponweb-ci-docker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - '.github/workflows/eshoponweb-ci-docker.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        run: |
+          az group create --name ${{ secrets.AZURE_RESOURCE_GROUP }} --location eastus
+
+      - name: Deploy Azure Container Registry via Bicep
+        id: deploy-acr
+        uses: azure/arm-deploy@v2
+        with:
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          template: ./infra/acr.bicep
+          parameters: 'location=eastus'
+
+      - name: Get ACR Login Server & Log in
+        id: acr-info
+        run: |
+          ACR_SERVER=$(az acr list --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --query "[0].loginServer" -o tsv)
+          echo "ACR_LOGIN_SERVER=$ACR_SERVER" >> $GITHUB_ENV
+          az acr login --name $ACR_SERVER
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_TAG=${{ github.run_id }}
+          IMAGE_NAME="${{ env.ACR_LOGIN_SERVER }}/eshoponweb/web"
+
+          docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest -f src/Web/Dockerfile .
+          docker push $IMAGE_NAME:$IMAGE_TAG
+          docker push $IMAGE_NAME:latest

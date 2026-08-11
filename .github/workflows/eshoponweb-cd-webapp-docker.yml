@@ -1,0 +1,41 @@
+name: eshoponweb-cd-webapp-docker
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["eshoponweb-ci-docker"]
+    types:
+      - completed
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-appservice:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Azure App Service (Docker Container)
+        id: deploy-webapp
+        uses: azure/arm-deploy@v2
+        with:
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          template: ./infra/webapp-docker.bicep
+          parameters: 'location=eastus'
+
+      - name: Assign AcrPull Role to App Service Managed Identity
+        uses: azure/arm-deploy@v2
+        with:
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          template: ./infra/webapp-to-acr-roleassignment.bicep
